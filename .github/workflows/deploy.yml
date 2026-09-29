@@ -57,25 +57,25 @@ jobs:
 
 
       # 6. Get VPC information
-      - name: Get VPC and subnet IDs
-        id: network
-        run: |
-          VPC_ID=$(aws ec2 describe-vpcs \
-            --filters "Name=tag:Name,Values=vpc-demo" \
-            --query "Vpcs[0].VpcId" \
-            --output text)
+      # - name: Get VPC and subnet IDs
+      #   id: network
+      #   run: |
+      #     VPC_ID=$(aws ec2 describe-vpcs \
+      #       --filters "Name=tag:Name,Values=vpc-demo" \
+      #       --query "Vpcs[0].VpcId" \
+      #       --output text)
 
-          SUBNETS=$(aws ec2 describe-subnets \
-            --filters "Name=vpc-id,Values=$VPC_ID" \
-            --query "Subnets[?MapPublicIpOnLaunch==`true`].SubnetId" \
-            --output text)
+      #     SUBNETS=$(aws ec2 describe-subnets \
+      #       --filters "Name=vpc-id,Values=$VPC_ID" \
+      #       --query "Subnets[?MapPublicIpOnLaunch==`true`].SubnetId" \
+      #       --output text)
 
-          SUBNET1=$(echo $SUBNETS | awk '{print $1}')
-          SUBNET2=$(echo $SUBNETS | awk '{print $2}')
+          # SUBNET1=$(echo $SUBNETS | awk '{print $1}')
+          # SUBNET2=$(echo $SUBNETS | awk '{print $2}')
 
-          echo "VPC_ID=$VPC_ID" >> $GITHUB_OUTPUT
-          echo "SUBNET1=$SUBNET1" >> $GITHUB_OUTPUT
-          echo "SUBNET2=$SUBNET2" >> $GITHUB_OUTPUT
+          # echo "VPC_ID=$VPC_ID" >> $GITHUB_OUTPUT
+          # echo "SUBNET1=$SUBNET1" >> $GITHUB_OUTPUT
+          # echo "SUBNET2=$SUBNET2" >> $GITHUB_OUTPUT
 
 
       # 7. Deploy CloudFormation
