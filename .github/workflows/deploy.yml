@@ -1,0 +1,95 @@
+name: Build, Push and Deploy
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_FRONTEND_REPOSITORY: frontend
+  ECR_BACKEND_REPOSITORY: backend
+  STACK_NAME: ecs-frontend-backend
+
+jobs:
+
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      # 2. Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # 3. Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # 4. Build and push Frontend image
+      - name: Build and push frontend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./frontend
+          docker push $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG
+
+
+      # 5. Build and push Backend image
+      - name: Build and push backend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG ./backend
+          docker push $ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG
+
+
+      # 6. Get VPC information
+      - name: Get VPC and subnet IDs
+        id: network
+        run: |
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=vpc-demo" \
+            --query "Vpcs[0].VpcId" \
+            --output text)
+
+          SUBNETS=$(aws ec2 describe-subnets \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+            --query "Subnets[?MapPublicIpOnLaunch==`true`].SubnetId" \
+            --output text)
+
+          SUBNET1=$(echo $SUBNETS | awk '{print $1}')
+          SUBNET2=$(echo $SUBNETS | awk '{print $2}')
+
+          echo "VPC_ID=$VPC_ID" >> $GITHUB_OUTPUT
+          echo "SUBNET1=$SUBNET1" >> $GITHUB_OUTPUT
+          echo "SUBNET2=$SUBNET2" >> $GITHUB_OUTPUT
+
+
+      # 7. Deploy CloudFormation
+      - name: Deploy CloudFormation
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          aws cloudformation deploy \
+            --template-file Cloudformation/ecs.yaml \
+            --stack-name $STACK_NAME \
+            --parameter-overrides \
+              FrontendImage=$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG \
+              BackendImage=$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG \
+              VpcId=${{ steps.network.outputs.VPC_ID }} \
+              PublicSubnets="${{ steps.network.outputs.SUBNET1 }},${{ steps.network.outputs.SUBNET2 }}" \
+            --capabilities CAPABILITY_NAMED_IAM
