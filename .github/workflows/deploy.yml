@@ -90,6 +90,8 @@ jobs:
             --parameter-overrides \
               FrontendImage=$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG \
               BackendImage=$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG \
-              VpcId=${{ steps.network.outputs.VPC_ID }} \
-              PublicSubnets="${{ steps.network.outputs.SUBNET1 }},${{ steps.network.outputs.SUBNET2 }}" \
+              # VpcId=${{ steps.network.outputs.VPC_ID }} \
+              # PublicSubnets="${{ steps.network.outputs.SUBNET1 }},${{ steps.network.outputs.SUBNET2 }}" \
+              VpcId=${{ secrets.VPC_ID }} \
+              PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
             --capabilities CAPABILITY_NAMED_IAM
