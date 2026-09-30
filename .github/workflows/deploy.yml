@@ -79,19 +79,43 @@ jobs:
 
 
       # 7. Deploy CloudFormation
+      # - name: Deploy CloudFormation
+      #   env:
+      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      #     IMAGE_TAG: ${{ github.sha }}
+      #     VPC_ID: ${{ secrets.VPC_ID }}
+      #     SUBNET_1: ${{ secrets.PUBLIC_SUBNET_1 }}
+      #     SUBNET_2: ${{ secrets.PUBLIC_SUBNET_2 }}
+      #   run: |
+      #     aws cloudformation deploy \
+      #       --template-file Cloudformation/ecs.yaml \
+      #       --stack-name $STACK_NAME \
+      #       --parameter-overrides \
+      #         FrontendImage=$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG \
+      #         BackendImage=$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG \
+      #          VpcId=${{ steps.network.outputs.VPC_ID }} \
+      #          PublicSubnets="${{ steps.network.outputs.SUBNET1 }},${{ steps.network.outputs.SUBNET2 }}" \
+      #         VpcId=${{ secrets.VPC_ID }} \
+      #         PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
+      #       --capabilities CAPABILITY_NAMED_IAM
+
       - name: Deploy CloudFormation
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
+          VPC_ID: ${{ secrets.VPC_ID }}
+          SUBNET_1: ${{ secrets.PUBLIC_SUBNET_1 }}
+          SUBNET_2: ${{ secrets.PUBLIC_SUBNET_2 }}
         run: |
+          echo "Deploying to VPC: $VPC_ID"
+          echo "Using subnets: $SUBNET_1 and $SUBNET_2"
+
           aws cloudformation deploy \
             --template-file Cloudformation/ecs.yaml \
             --stack-name $STACK_NAME \
             --parameter-overrides \
-              FrontendImage=$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG \
-              BackendImage=$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG \
-              # VpcId=${{ steps.network.outputs.VPC_ID }} \
-              # PublicSubnets="${{ steps.network.outputs.SUBNET1 }},${{ steps.network.outputs.SUBNET2 }}" \
-              VpcId=${{ secrets.VPC_ID }} \
-              PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
+              FrontendImage="$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG" \
+              BackendImage="$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG" \
+              VpcId="$VPC_ID" \
+              PublicSubnets="$SUBNET_1,$SUBNET_2" \
             --capabilities CAPABILITY_NAMED_IAM
