@@ -68,36 +68,71 @@ Resources:
 
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
-
-
-  # --------------------------------------------------
-  # SECURITY GROUP FOR ECS TASKS
-  # --------------------------------------------------
-
-  ECSSecurityGroup:
+          
+  FrontendSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for ECS frontend and backend
+      GroupDescription: Security group for frontend ECS tasks
       VpcId: !Ref VpcId
 
       SecurityGroupIngress:
 
-        # Frontend traffic from ALB
         - IpProtocol: tcp
           FromPort: 3000
           ToPort: 3000
           SourceSecurityGroupId: !Ref ALBSecurityGroup
 
-        # Backend traffic from ECS tasks
+      SecurityGroupEgress:
+
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  BackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for backend ECS tasks
+      VpcId: !Ref VpcId
+
+      SecurityGroupIngress:
+
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          SourceSecurityGroupId: !Ref ECSSecurityGroup
+          SourceSecurityGroupId: !Ref FrontendSecurityGroup
 
       SecurityGroupEgress:
 
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
+
+  # --------------------------------------------------
+  # SECURITY GROUP FOR ECS TASKS
+  # --------------------------------------------------
+
+  # ECSSecurityGroup:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Properties:
+  #     GroupDescription: Security group for ECS frontend and backend
+  #     VpcId: !Ref VpcId
+
+  #     SecurityGroupIngress:
+
+  #       # Frontend traffic from ALB
+  #       - IpProtocol: tcp
+  #         FromPort: 3000
+  #         ToPort: 3000
+  #         SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  #       # Backend traffic from ECS tasks
+  #       - IpProtocol: tcp
+  #         FromPort: 80
+  #         ToPort: 80
+  #         SourceSecurityGroupId: !Ref ECSSecurityGroup
+
+  #     SecurityGroupEgress:
+
+  #       - IpProtocol: -1
+  #         CidrIp: 0.0.0.0/0
 
 
   # --------------------------------------------------
@@ -258,7 +293,7 @@ Resources:
           Subnets: !Ref PublicSubnets
 
           SecurityGroups:
-            - !Ref ECSSecurityGroup
+            - !Ref BackendSecurityGroup
 
       ServiceConnectConfiguration:
 
@@ -310,7 +345,7 @@ Resources:
           Subnets: !Ref PublicSubnets
 
           SecurityGroups:
-            - !Ref ECSSecurityGroup
+            - !Ref FrontendSecurityGroup
 
       LoadBalancers:
 
