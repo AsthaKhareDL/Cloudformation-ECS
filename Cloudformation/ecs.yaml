@@ -295,11 +295,23 @@ Resources:
           SecurityGroups:
             - !Ref BackendSecurityGroup
 
+      # ServiceConnectConfiguration:
+
+      #   Enabled: true
+
+      #   Namespace: !Ref ServiceConnectNamespace
+
       ServiceConnectConfiguration:
-
         Enabled: true
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
 
-        Namespace: !Ref ServiceConnectNamespace
+        # Services:
+        #     - PortName: backend
+        #       DiscoveryName: backend
+
+        #       ClientAliases:
+        #       - Port: 80
+        #         DnsName: backend
 
         Services:
 
@@ -357,7 +369,7 @@ Resources:
 
         Enabled: true
 
-        Namespace: !Ref ServiceConnectNamespace
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
 
 
   # --------------------------------------------------
