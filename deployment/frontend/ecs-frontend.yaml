@@ -1,0 +1,301 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  ECS Frontend deployment using ECS Service Connect.
+  ALB is placed in front of the Frontend service.
+
+Parameters:
+
+  FrontendImage:
+    Type: String
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+
+
+Resources:
+
+  # --------------------------------------------------
+  # ECS Cluster
+  # --------------------------------------------------
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: frontend-backend-cluster
+
+
+  # --------------------------------------------------
+  # Service Connect / Cloud Map Namespace
+  # --------------------------------------------------
+
+  ServiceConnectNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: demo.local
+      Vpc: !Ref VpcId
+
+
+  # --------------------------------------------------
+  # ECS Task Execution Role
+  # --------------------------------------------------
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecs-task-execution-role
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+
+  # --------------------------------------------------
+  # ALB Security Group
+  # --------------------------------------------------
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for frontend ALB
+      VpcId: !Ref VpcId
+
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+
+  # --------------------------------------------------
+  # Frontend Security Group
+  # --------------------------------------------------
+
+  FrontendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for frontend ECS tasks
+      VpcId: !Ref VpcId
+
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+
+  # --------------------------------------------------
+  # Frontend CloudWatch Logs
+  # --------------------------------------------------
+
+  FrontendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/frontend
+      RetentionInDays: 7
+
+
+  # --------------------------------------------------
+  # Frontend ECS Task Definition
+  # --------------------------------------------------
+
+  FrontendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: frontend
+      NetworkMode: awsvpc
+
+      RequiresCompatibilities:
+        - FARGATE
+
+      Cpu: '256'
+      Memory: '512'
+
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+
+      ContainerDefinitions:
+
+        - Name: frontend
+
+          Image: !Ref FrontendImage
+
+          Essential: true
+
+          PortMappings:
+            - Name: frontend
+              ContainerPort: 3000
+              Protocol: tcp
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FrontendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+
+
+  # --------------------------------------------------
+  # Application Load Balancer
+  # --------------------------------------------------
+
+  FrontendALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: frontend-alb
+      Scheme: internet-facing
+      Type: application
+
+      Subnets: !Ref PublicSubnets
+
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+
+  # --------------------------------------------------
+  # Frontend Target Group
+  # --------------------------------------------------
+
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: frontend-target-group
+      Port: 3000
+      Protocol: HTTP
+      TargetType: ip
+
+      VpcId: !Ref VpcId
+
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+
+
+  # --------------------------------------------------
+  # ALB Listener
+  # --------------------------------------------------
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref FrontendALB
+
+      Port: 80
+      Protocol: HTTP
+
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+
+  # --------------------------------------------------
+  # Frontend ECS Service
+  # --------------------------------------------------
+
+  FrontendService:
+    Type: AWS::ECS::Service
+
+    DependsOn:
+      - FrontendTargetGroup
+      - ALBListener
+      - ServiceConnectNamespace
+
+    Properties:
+      ServiceName: frontend
+
+      Cluster: !Ref ECSCluster
+
+      TaskDefinition: !Ref FrontendTaskDefinition
+
+      DesiredCount: 1
+
+      LaunchType: FARGATE
+
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+
+          Subnets: !Ref PublicSubnets
+
+          SecurityGroups:
+            - !Ref FrontendSecurityGroup
+
+      LoadBalancers:
+        - ContainerName: frontend
+          ContainerPort: 3000
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+      # Frontend acts as a Service Connect client.
+      # Backend service will be exposed through Service Connect.
+
+      ServiceConnectConfiguration:
+        Enabled: true
+        Namespace: !GetAtt ServiceConnectNamespace.Arn
+
+
+# --------------------------------------------------
+# Outputs
+# --------------------------------------------------
+
+Outputs:
+
+  ALBURL:
+    Description: Frontend ALB DNS name
+
+    Value: !Sub
+      - http://${DNSName}
+      - DNSName: !GetAtt FrontendALB.DNSName
+
+
+  ECSClusterName:
+    Description: ECS Cluster name
+
+    Value: !Ref ECSCluster
+
+    Export:
+      Name: ECSClusterName
+
+
+  ServiceConnectNamespaceArn:
+    Description: Service Connect namespace ARN
+
+    Value: !GetAtt ServiceConnectNamespace.Arn
+
+    Export:
+      Name: ServiceConnectNamespaceArn
+
+
+  ECSTaskExecutionRoleArn:
+    Description: ECS task execution role ARN
+
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+
+    Export:
+      Name: ECSTaskExecutionRoleArn
+
+
+  FrontendSecurityGroupId:
+    Description: Frontend ECS security group ID
+
+    Value: !Ref FrontendSecurityGroup
+
+    Export:
+      Name: FrontendSecurityGroupId
