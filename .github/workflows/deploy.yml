@@ -1,27 +1,52 @@
-name: Build, Push and Deploy
+name: Deploy ECS
 
 on:
   workflow_dispatch:
+    inputs:
+      application:
+        description: 'Select application to deploy'
+        required: true
+        type: choice
+        options:
+          - frontend
+          - backend
+          - both
+
+      image_tag:
+        description: 'Image tag (leave blank to use latest)'
+        required: false
+        type: string
 
 env:
   AWS_REGION: us-east-1
+
   ECR_FRONTEND_REPOSITORY: frontend
   ECR_BACKEND_REPOSITORY: backend
-  STACK_NAME: ecs-frontend-backend
+
+  FRONTEND_STACK_NAME: ecs-frontend
+  BACKEND_STACK_NAME: ecs-backend
+
 
 jobs:
 
   deploy:
+    name: Deploy ECS
     runs-on: ubuntu-latest
 
     steps:
 
-      # 1. Checkout repository
-      - name: Checkout code
+      # --------------------------------------------
+      # Checkout repository
+      # --------------------------------------------
+
+      - name: Checkout repository
         uses: actions/checkout@v4
 
 
-      # 2. Configure AWS credentials
+      # --------------------------------------------
+      # Configure AWS
+      # --------------------------------------------
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -30,53 +55,84 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
-      # 3. Login to Amazon ECR
+      # --------------------------------------------
+      # Login to ECR
+      # --------------------------------------------
+
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
 
-      # 4. Build and push Frontend image
-      - name: Build and push frontend
+      # --------------------------------------------
+      # Determine image tag
+      # --------------------------------------------
+
+      - name: Set image tag
+        id: image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          INPUT_TAG: ${{ inputs.image_tag }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG ./Fronted
-          docker push $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG
+          if [ -z "$INPUT_TAG" ]; then
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "No image tag provided. Using latest."
+          else
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "Using image tag: $INPUT_TAG"
+          fi
 
 
-      # 5. Build and push Backend image
-      - name: Build and push backend
+      # --------------------------------------------
+      # Deploy Frontend
+      # --------------------------------------------
+
+      - name: Deploy Frontend
+        if: ${{ inputs.application == 'frontend' || inputs.application == 'both' }}
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG ./Backend
-          docker push $ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG
-
-
-
-      # 7. Deploy CloudFormation
-    
-
-      - name: Deploy CloudFormation
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
           VPC_ID: ${{ secrets.VPC_ID }}
           SUBNET_1: ${{ secrets.PUBLIC_SUBNET_1 }}
           SUBNET_2: ${{ secrets.PUBLIC_SUBNET_2 }}
+
         run: |
-          echo "Deploying to VPC: $VPC_ID"
-          echo "Using subnets: $SUBNET_1 and $SUBNET_2"
+          echo "Deploying Frontend"
+          echo "Image: $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG"
 
           aws cloudformation deploy \
-            --template-file Cloudformation/ecs.yaml \
-            --stack-name $STACK_NAME \
+            --template-file deployment/frontend/ecs-frontend.yaml \
+            --stack-name "$FRONTEND_STACK_NAME" \
             --parameter-overrides \
               FrontendImage="$ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG" \
+              VpcId="$VPC_ID" \
+              PublicSubnets="$SUBNET_1,$SUBNET_2" \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
+
+
+      # --------------------------------------------
+      # Deploy Backend
+      # --------------------------------------------
+
+      - name: Deploy Backend
+        if: ${{ inputs.application == 'backend' || inputs.application == 'both' }}
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          VPC_ID: ${{ secrets.VPC_ID }}
+          SUBNET_1: ${{ secrets.PUBLIC_SUBNET_1 }}
+          SUBNET_2: ${{ secrets.PUBLIC_SUBNET_2 }}
+
+        run: |
+          echo "Deploying Backend"
+          echo "Image: $ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG"
+
+          aws cloudformation deploy \
+            --template-file deployment/backend/ecs-backend.yaml \
+            --stack-name "$BACKEND_STACK_NAME" \
+            --parameter-overrides \
               BackendImage="$ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG" \
               VpcId="$VPC_ID" \
               PublicSubnets="$SUBNET_1,$SUBNET_2" \
-            --capabilities CAPABILITY_NAMED_IAM
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
