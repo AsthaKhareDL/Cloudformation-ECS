@@ -12,8 +12,13 @@ on:
           - backend
           - both
 
-      image_tag:
-        description: 'Image tag (leave blank to use latest)'
+      frontend_image_tag:
+        description: 'Frontend image tag (leave blank to use latest)'
+        required: false
+        type: string
+
+      backend_image_tag:
+        description: 'Backend image tag (leave blank to use latest)'
         required: false
         type: string
 
@@ -26,26 +31,15 @@ env:
   FRONTEND_STACK_NAME: ecs-frontend
   BACKEND_STACK_NAME: ecs-backend
 
-
 jobs:
-
   deploy:
     name: Deploy ECS
     runs-on: ubuntu-latest
 
     steps:
 
-      # --------------------------------------------
-      # Checkout repository
-      # --------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-
-      # --------------------------------------------
-      # Configure AWS
-      # --------------------------------------------
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -54,47 +48,40 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-
-      # --------------------------------------------
-      # Login to ECR
-      # --------------------------------------------
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-
-      # --------------------------------------------
-      # Determine image tag
-      # --------------------------------------------
-
-      - name: Set image tag
+      - name: Set image tags
         id: image
         env:
-          INPUT_TAG: ${{ inputs.image_tag }}
+          FRONTEND_INPUT_TAG: ${{ inputs.frontend_image_tag }}
+          BACKEND_INPUT_TAG: ${{ inputs.backend_image_tag }}
         run: |
-          if [ -z "$INPUT_TAG" ]; then
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-            echo "No image tag provided. Using latest."
+          if [ -z "$FRONTEND_INPUT_TAG" ]; then
+            echo "frontend_tag=latest" >> "$GITHUB_OUTPUT"
+            echo "Frontend image tag not provided. Using latest."
           else
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-            echo "Using image tag: $INPUT_TAG"
+            echo "frontend_tag=$FRONTEND_INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "Using frontend image tag: $FRONTEND_INPUT_TAG"
           fi
 
-
-      # --------------------------------------------
-      # Deploy Frontend
-      # --------------------------------------------
+          if [ -z "$BACKEND_INPUT_TAG" ]; then
+            echo "backend_tag=latest" >> "$GITHUB_OUTPUT"
+            echo "Backend image tag not provided. Using latest."
+          else
+            echo "backend_tag=$BACKEND_INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "Using backend image tag: $BACKEND_INPUT_TAG"
+          fi
 
       - name: Deploy Frontend
         if: ${{ inputs.application == 'frontend' || inputs.application == 'both' }}
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          IMAGE_TAG: ${{ steps.image.outputs.frontend_tag }}
           VPC_ID: ${{ secrets.VPC_ID }}
           SUBNET_1: ${{ secrets.PUBLIC_SUBNET_1 }}
           SUBNET_2: ${{ secrets.PUBLIC_SUBNET_2 }}
-
         run: |
           echo "Deploying Frontend"
           echo "Image: $ECR_REGISTRY/$ECR_FRONTEND_REPOSITORY:$IMAGE_TAG"
@@ -109,20 +96,14 @@ jobs:
             --capabilities CAPABILITY_NAMED_IAM \
             --no-fail-on-empty-changeset
 
-
-      # --------------------------------------------
-      # Deploy Backend
-      # --------------------------------------------
-
       - name: Deploy Backend
         if: ${{ inputs.application == 'backend' || inputs.application == 'both' }}
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+          IMAGE_TAG: ${{ steps.image.outputs.backend_tag }}
           VPC_ID: ${{ secrets.VPC_ID }}
           SUBNET_1: ${{ secrets.PUBLIC_SUBNET_1 }}
           SUBNET_2: ${{ secrets.PUBLIC_SUBNET_2 }}
-
         run: |
           echo "Deploying Backend"
           echo "Image: $ECR_REGISTRY/$ECR_BACKEND_REPOSITORY:$IMAGE_TAG"
