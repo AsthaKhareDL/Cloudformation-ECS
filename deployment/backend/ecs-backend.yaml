@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
 Description: >
-  ECS Backend deployment using ECS Service Connect.
-  Backend does not use a Load Balancer.
+  ECS Backend deployment using ECS EC2 launch type and Service Connect.
+  Backend is accessed by the Frontend through Service Connect.
+  No Load Balancer is used for the Backend.
 
 Parameters:
 
@@ -18,33 +19,9 @@ Parameters:
 
 Resources:
 
-  # --------------------------------------------------
-  # Backend Security Group
-  # --------------------------------------------------
-
-  BackendSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for backend ECS tasks
-      VpcId: !Ref VpcId
-
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-
-          # Only frontend ECS tasks can access backend
-          SourceSecurityGroupId:
-            Fn::ImportValue: FrontendSecurityGroupId
-
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-
-
-  # --------------------------------------------------
+  # ------------------------------------------------------------
   # Backend CloudWatch Logs
-  # --------------------------------------------------
+  # ------------------------------------------------------------
 
   BackendLogGroup:
     Type: AWS::Logs::LogGroup
@@ -53,22 +30,26 @@ Resources:
       RetentionInDays: 7
 
 
-  # --------------------------------------------------
+  # ------------------------------------------------------------
   # Backend ECS Task Definition
-  # --------------------------------------------------
+  # ------------------------------------------------------------
 
   BackendTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
+
       Family: backend
 
-      NetworkMode: awsvpc
+      # EC2 + Docker bridge networking
+      NetworkMode: bridge
 
       RequiresCompatibilities:
-        - FARGATE
+        - EC2
 
       Cpu: '256'
-      Memory: '512'
+
+      # Reduced so it can run on the t3.micro
+      Memory: '256'
 
       ExecutionRoleArn:
         Fn::ImportValue: ECSTaskExecutionRoleArn
@@ -83,32 +64,36 @@ Resources:
 
           PortMappings:
             - Name: backend
+
+              # Backend listens on port 80 inside container
               ContainerPort: 80
+
+              # ECS/Docker chooses a free host port
+              HostPort: 0
+
               Protocol: tcp
 
           LogConfiguration:
             LogDriver: awslogs
+
             Options:
               awslogs-group: !Ref BackendLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: backend
 
 
-  # --------------------------------------------------
+  # ------------------------------------------------------------
   # Backend ECS Service
-  # --------------------------------------------------
+  # ------------------------------------------------------------
 
   BackendService:
     Type: AWS::ECS::Service
-
-    DependsOn:
-      - BackendSecurityGroup
 
     Properties:
 
       ServiceName: backend
 
-      # Import cluster created by frontend stack
+      # Use the cluster created by the Frontend stack
       Cluster:
         Fn::ImportValue: ECSClusterName
 
@@ -116,24 +101,20 @@ Resources:
 
       DesiredCount: 1
 
-      LaunchType: FARGATE
+      # EC2 launch type
+      LaunchType: EC2
 
-      NetworkConfiguration:
-
-        AwsvpcConfiguration:
-
-          AssignPublicIp: ENABLED
-
-          Subnets: !Ref PublicSubnets
-
-          SecurityGroups:
-            - !Ref BackendSecurityGroup
-
-
-      # Backend exposes itself through Service Connect.
-      # Frontend can access it using:
+      # --------------------------------------------------------
+      # Service Connect
+      # --------------------------------------------------------
+      #
+      # Backend is the SERVER.
+      # Frontend will discover it using:
       #
       # http://backend:80
+      #
+      # No hard-coded IP address is required.
+      #
 
       ServiceConnectConfiguration:
 
@@ -155,17 +136,12 @@ Resources:
                 DnsName: backend
 
 
-# --------------------------------------------------
+# ------------------------------------------------------------
 # Outputs
-# --------------------------------------------------
+# ------------------------------------------------------------
 
 Outputs:
 
   BackendServiceName:
-    Description: Backend ECS service
+    Description: Backend ECS service name
     Value: !Ref BackendService
-
-
-  BackendSecurityGroupId:
-    Description: Backend ECS security group
-    Value: !Ref BackendSecurityGroup
