@@ -16,8 +16,9 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
 
   FrontendDesiredCount:
-  Type: Number
-  Default: 1
+    Type: Number
+    Default: 1
+    
 Resources:
 
   # ------------------------------------------------------------
