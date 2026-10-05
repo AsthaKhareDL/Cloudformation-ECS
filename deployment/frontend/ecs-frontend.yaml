@@ -15,7 +15,9 @@ Parameters:
   PublicSubnets:
     Type: List<AWS::EC2::Subnet::Id>
 
-
+  FrontendDesiredCount:
+  Type: Number
+  Default: 1
 Resources:
 
   # ------------------------------------------------------------
@@ -341,7 +343,7 @@ Resources:
 
       TaskDefinition: !Ref FrontendTaskDefinition
 
-      DesiredCount: 1
+      DesiredCount: !Ref FrontendDesiredCount
 
       # EC2 launch type
       LaunchType: EC2

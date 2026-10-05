@@ -63,12 +63,17 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 
+      # ========================================================
+      # BOTH APPLICATIONS
+      # ========================================================
+
       # --------------------------------------------------------
-      # Deploy Frontend
+      # Step 1: Create frontend infrastructure
+      #         but keep frontend service at 0 tasks
       # --------------------------------------------------------
 
-      - name: Deploy Frontend
-        if: ${{ inputs.application == 'frontend' || inputs.application == 'both' }}
+      - name: Create Frontend Infrastructure
+        if: ${{ inputs.application == 'both' }}
         run: |
 
           FRONTEND_TAG="${{ inputs.frontend_image_tag }}"
@@ -81,8 +86,7 @@ jobs:
             --query Account \
             --output text).dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND_REPOSITORY}:${FRONTEND_TAG}
 
-          echo "Deploying Frontend image:"
-          echo "$FRONTEND_IMAGE"
+          echo "Creating frontend infrastructure..."
 
           aws cloudformation deploy \
             --stack-name "$FRONTEND_STACK_NAME" \
@@ -91,11 +95,12 @@ jobs:
               FrontendImage="$FRONTEND_IMAGE" \
               VpcId="${{ secrets.VPC_ID }}" \
               PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
+              FrontendDesiredCount=0 \
             --capabilities CAPABILITY_NAMED_IAM
 
 
       # --------------------------------------------------------
-      # Deploy Backend
+      # Step 2: Deploy backend
       # --------------------------------------------------------
 
       - name: Deploy Backend
@@ -122,4 +127,67 @@ jobs:
               BackendImage="$BACKEND_IMAGE" \
               VpcId="${{ secrets.VPC_ID }}" \
               PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
+            --capabilities CAPABILITY_NAMED_IAM
+
+
+      # --------------------------------------------------------
+      # Step 3: Start frontend after backend is available
+      # --------------------------------------------------------
+
+      - name: Start Frontend
+        if: ${{ inputs.application == 'both' }}
+        run: |
+
+          FRONTEND_TAG="${{ inputs.frontend_image_tag }}"
+
+          if [ -z "$FRONTEND_TAG" ]; then
+            FRONTEND_TAG="latest"
+          fi
+
+          FRONTEND_IMAGE=$(aws sts get-caller-identity \
+            --query Account \
+            --output text).dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND_REPOSITORY}:${FRONTEND_TAG}
+
+          echo "Starting frontend..."
+
+          aws cloudformation deploy \
+            --stack-name "$FRONTEND_STACK_NAME" \
+            --template-file deployment/frontend/ecs-frontend.yaml \
+            --parameter-overrides \
+              FrontendImage="$FRONTEND_IMAGE" \
+              VpcId="${{ secrets.VPC_ID }}" \
+              PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
+              FrontendDesiredCount=1 \
+            --capabilities CAPABILITY_NAMED_IAM
+
+
+      # ========================================================
+      # FRONTEND ONLY
+      # ========================================================
+
+      - name: Deploy Frontend
+        if: ${{ inputs.application == 'frontend' }}
+        run: |
+
+          FRONTEND_TAG="${{ inputs.frontend_image_tag }}"
+
+          if [ -z "$FRONTEND_TAG" ]; then
+            FRONTEND_TAG="latest"
+          fi
+
+          FRONTEND_IMAGE=$(aws sts get-caller-identity \
+            --query Account \
+            --output text).dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND_REPOSITORY}:${FRONTEND_TAG}
+
+          echo "Deploying Frontend image:"
+          echo "$FRONTEND_IMAGE"
+
+          aws cloudformation deploy \
+            --stack-name "$FRONTEND_STACK_NAME" \
+            --template-file deployment/frontend/ecs-frontend.yaml \
+            --parameter-overrides \
+              FrontendImage="$FRONTEND_IMAGE" \
+              VpcId="${{ secrets.VPC_ID }}" \
+              PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
+              FrontendDesiredCount=1 \
             --capabilities CAPABILITY_NAMED_IAM
