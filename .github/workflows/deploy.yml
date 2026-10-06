@@ -95,7 +95,7 @@ jobs:
               FrontendImage="$FRONTEND_IMAGE" \
               VpcId="${{ secrets.VPC_ID }}" \
               PublicSubnets="${{ secrets.PUBLIC_SUBNET_1 }},${{ secrets.PUBLIC_SUBNET_2 }}" \
-              FrontendDesiredCount=0 \
+              FrontendDesiredCount=1 \
             --capabilities CAPABILITY_NAMED_IAM
 
 
