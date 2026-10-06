@@ -242,6 +242,12 @@ Resources:
 
           Essential: true
 
+          Environment:
+            - Name: backend_URL
+              Value: http://backend:80
+            
+
+
           PortMappings:
             - Name: frontend
               ContainerPort: 3000
